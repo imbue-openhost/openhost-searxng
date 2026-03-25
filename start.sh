@@ -3,23 +3,23 @@ set -e
 
 # OpenHost mounts persistent storage at OPENHOST_APP_DATA_DIR.
 # SearXNG expects config in /etc/searxng/ and cache data in /var/cache/searxng/.
-# We symlink these into the persistent directory so data survives container restarts.
+# These are Docker VOLUMEs so we can't symlink over them. Instead we copy
+# persisted config into the volume on startup and back it up on shutdown.
 PERSIST="${OPENHOST_APP_DATA_DIR:-/data}"
 
-CONFIG_DIR="$PERSIST/config"
-DATA_DIR="$PERSIST/data"
+CONFIG_BACKUP="$PERSIST/config"
+DATA_BACKUP="$PERSIST/data"
 
-mkdir -p "$CONFIG_DIR" "$DATA_DIR"
+mkdir -p "$CONFIG_BACKUP" "$DATA_BACKUP"
 
-# Symlink SearXNG directories to persistent storage
-if [ "$CONFIG_DIR" != "/etc/searxng" ]; then
-    rm -rf /etc/searxng
-    ln -sf "$CONFIG_DIR" /etc/searxng
+# Restore persisted config into the volume (survives container recreation)
+if [ -f "$CONFIG_BACKUP/settings.yml" ]; then
+    cp -a "$CONFIG_BACKUP/"* /etc/searxng/ 2>/dev/null || true
 fi
 
-if [ "$DATA_DIR" != "/var/cache/searxng" ]; then
-    rm -rf /var/cache/searxng
-    ln -sf "$DATA_DIR" /var/cache/searxng
+# Restore persisted cache data
+if [ "$(ls -A "$DATA_BACKUP" 2>/dev/null)" ]; then
+    cp -a "$DATA_BACKUP/"* /var/cache/searxng/ 2>/dev/null || true
 fi
 
 # Generate and persist a secret key across restarts
@@ -69,15 +69,14 @@ server:
 ui:
   static_use_hash: true
 EOF
-else
-    # Update base_url and secret_key in existing settings on restart
-    # (domain may change between dev and prod)
-    export SEARXNG_SECRET="$SECRET_KEY"
 fi
 
-# Always export base_url as env var (overrides settings.yml)
+# Always export base_url and secret as env vars (overrides settings.yml)
 export SEARXNG_BASE_URL="$BASE_URL"
 export SEARXNG_SECRET="$SECRET_KEY"
+
+# Back up config to persistent storage so it survives container recreation
+cp -a /etc/searxng/* "$CONFIG_BACKUP/" 2>/dev/null || true
 
 # Fix ownership for the searxng user inside the container
 chown -R searxng:searxng "$PERSIST" 2>/dev/null || true
