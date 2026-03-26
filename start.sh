@@ -2,25 +2,19 @@
 set -e
 
 # OpenHost mounts persistent storage at OPENHOST_APP_DATA_DIR.
-# SearXNG expects config in /etc/searxng/ and cache data in /var/cache/searxng/.
-# These are Docker VOLUMEs so we can't symlink over them. Instead we copy
-# persisted config into the volume on startup and back it up on shutdown.
+# Configure SearXNG to use OpenHost persistent storage directly, avoiding
+# copy/symlink issues with image-managed volume paths.
 PERSIST="${OPENHOST_APP_DATA_DIR:-/data}"
 
-CONFIG_BACKUP="$PERSIST/config"
-DATA_BACKUP="$PERSIST/data"
+CONFIG_DIR="$PERSIST/config"
+DATA_DIR="$PERSIST/data"
 
-mkdir -p "$CONFIG_BACKUP" "$DATA_BACKUP"
+mkdir -p "$CONFIG_DIR" "$DATA_DIR"
 
-# Restore persisted config into the volume (survives container recreation)
-if [ -f "$CONFIG_BACKUP/settings.yml" ]; then
-    cp -a "$CONFIG_BACKUP/"* /etc/searxng/ 2>/dev/null || true
-fi
-
-# Restore persisted cache data
-if [ "$(ls -A "$DATA_BACKUP" 2>/dev/null)" ]; then
-    cp -a "$DATA_BACKUP/"* /var/cache/searxng/ 2>/dev/null || true
-fi
+# Point SearXNG at persistent paths directly.
+export CONFIG_PATH="$CONFIG_DIR"
+export DATA_PATH="$DATA_DIR"
+export SEARXNG_SETTINGS_PATH="$CONFIG_DIR/settings.yml"
 
 # Generate and persist a secret key across restarts
 SECRET_KEY_FILE="$PERSIST/.secret_key"
@@ -56,7 +50,7 @@ else
 fi
 
 # Write settings.yml if it doesn't already exist (first boot)
-SETTINGS_FILE="/etc/searxng/settings.yml"
+SETTINGS_FILE="$SEARXNG_SETTINGS_PATH"
 if [ ! -f "$SETTINGS_FILE" ]; then
     cat > "$SETTINGS_FILE" <<EOF
 use_default_settings: true
@@ -75,13 +69,8 @@ fi
 export SEARXNG_BASE_URL="$BASE_URL"
 export SEARXNG_SECRET="$SECRET_KEY"
 
-# Back up config to persistent storage so it survives container recreation
-cp -a /etc/searxng/* "$CONFIG_BACKUP/" 2>/dev/null || true
-
 # Fix ownership for the searxng user inside the container
 chown -R searxng:searxng "$PERSIST" 2>/dev/null || true
-chown -R searxng:searxng /etc/searxng 2>/dev/null || true
-chown -R searxng:searxng /var/cache/searxng 2>/dev/null || true
 
 # Start Caddy in background — it rewrites Host from X-Forwarded-Host on
 # port 3000, then proxies to SearXNG on port 8080.
