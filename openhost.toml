@@ -8,7 +8,7 @@ image = "Dockerfile"
 port = 3000
 
 [routing]
-public_paths = ["/"]
+public_paths = ["*"]
 
 [resources]
 memory_mb = 512
