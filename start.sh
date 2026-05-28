@@ -60,6 +60,10 @@ server:
   limiter: false
   image_proxy: true
   method: "GET"
+search:
+  formats:
+    - html
+    - json
 ui:
   static_use_hash: true
 EOF
